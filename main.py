@@ -17,6 +17,13 @@ def create_random_circles(n, radius_range, board_size):
     return _circles
 
 
+# Function to check circles for equality
+def circles_are_the_same(circle1, circle2):
+    center1, radius1 = circle1
+    center2, radius2 = circle2
+    return center1 == center2 and radius1 == radius2
+
+
 # Function to calculate the total covered area of given circles
 def total_covered_area(_circles):
     shapes = [Point(c[0]).buffer(c[1]) for c in _circles]
@@ -76,29 +83,95 @@ def calculate_shapley_values(_circles, player_choices):
     return shapley_values
 
 
-# Function to calculate the optimal social welfare
-def calculate_optimal_social_welfare(_circles):
-    return total_covered_area(_circles)
+def get_marginal_contribution(new_circle, set_circles):
+    new_set_circles = set_circles.copy()
+    new_set_circles.append(new_circle)
+    return total_covered_area(new_set_circles) - total_covered_area(set_circles)
 
+
+def get_circle_with_largest_marginal_contribution(_circles, circles_chosen):
+    greatest_marginal_contribution = 0.0
+    circle_with_largest_marginal_contribution = _circles[0]
+    for circle in _circles:
+        if circle not in circles_chosen:
+            marginal_contribution = get_marginal_contribution(circle, circles_chosen)
+            if marginal_contribution >= greatest_marginal_contribution:
+                greatest_marginal_contribution = marginal_contribution
+                circle_with_largest_marginal_contribution = circle
+    return circle_with_largest_marginal_contribution
+
+
+def calculate_optimal_social_welfare(_circles, num_players):
+    max_area = 0
+    # Iterate over every possible selection of num_players circles
+    for subset in itertools.combinations(_circles, num_players):
+        area = total_covered_area(subset)
+        if area > max_area:
+            max_area = area
+    return max_area
+
+
+def is_nash_equilibrium_marginal_utility(circles_chosen, all_circles):
+    # Convert the tuple to a list for manipulation
+    circles_chosen_list = list(circles_chosen)
+
+    for i, circle in enumerate(circles_chosen_list):
+        # Get the circles chosen by all players other than the one in question
+        circles_from_other_players = circles_chosen_list[:i] + circles_chosen_list[i + 1:]
+
+        # Find the best option for the current player
+        best_option = get_circle_with_largest_marginal_contribution(all_circles, circles_from_other_players)
+
+        # If the best option is not the one chosen by the player, it's not a Nash Equilibrium
+        if not circles_are_the_same(best_option, circle):
+            return False
+
+    return True
+
+def calculate_worst_NE_with_marginal_utility(_circles, num_players):
+    # Brute force approach; Has a time complexity of (circles)^(players).
+    min_area = math.inf
+    # Iterate over every possible selection of num_players circles
+    for subset in itertools.combinations(_circles, num_players):
+        if is_nash_equilibrium_marginal_utility(subset, _circles):
+            area = total_covered_area(subset)
+            if area < min_area:
+                min_area = area
+    return min_area
+
+
+def calculate_worst_NE_with_shapley_utility(_circles, num_players):
+    return
+
+
+# Function to approximate the optimal social welfare
+def approximate_optimal_social_welfare(_circles, num_players):
+    circlesChosen = []
+    for _ in range(num_players):
+        choice = get_circle_with_largest_marginal_contribution(_circles, circlesChosen)
+        circlesChosen.append(choice)
+    return total_covered_area(circlesChosen)
 
 # Function to calculate the Price of Anarchy
-def calculate_price_of_anarchy(_circles, player_choices):
-    _, social_welfare_marginal = simulate_game(_circles, player_choices)
-    shapley_values = calculate_shapley_values(_circles, player_choices)
 
-    sorted_indices_by_shapley = np.argsort(-shapley_values).tolist()
-    _, social_welfare_shapley = simulate_game(_circles, sorted_indices_by_shapley)
+## How do we get _circles?
+## How do we get player_choices?
 
-    optimal_social_welfare = calculate_optimal_social_welfare(_circles)
 
-    poa_marginal = optimal_social_welfare / social_welfare_marginal
-    poa_shapley = optimal_social_welfare / social_welfare_shapley
+def calculate_price_of_anarchy_with_marginal_utility(_circles, num_players):
+    # Calculate the optimal_social_welfare
+    optimal_social_welfare = calculate_optimal_social_welfare(_circles, num_players)
 
-    return poa_marginal, poa_shapley
+    # Calculate the worst equilibrium welfare using marginal utility
+    worst_NE_welfare = calculate_worst_NE_with_marginal_utility(_circles, num_players)
+
+    # Calculate the POA using marginal utility
+    return optimal_social_welfare / worst_NE_welfare
 
 
 # Parameters
-numCircles = 6
+numPlayers = 3
+numCircles = 18
 radiusRange = (1, 3)
 boardSize = (10, 10)
 
@@ -137,12 +210,33 @@ contributions, socialWelfare = simulate_game(circles, chosenIndices)
 # Calculate Shapley values
 shapleyValues = calculate_shapley_values(circles, chosenIndices)
 
+# Calculate/approximate optimal social welfare
+smallGame = True
+if numCircles > 20:
+    smallGame = False
+
+optimalSocialWelfare = 0.0
+if smallGame:
+    optimalSocialWelfare = calculate_optimal_social_welfare(circles, numPlayers)
+else:
+    optimalSocialWelfare = approximate_optimal_social_welfare(circles, numPlayers)
+
+
 # Calculate Price of Anarchy
-poaMarginal, poaShapley = calculate_price_of_anarchy(circles, chosenIndices)
+poaMarginal = calculate_price_of_anarchy_with_marginal_utility(circles, numPlayers)
 
 # Display results
+if numPlayers != len(chosenIndices):
+    raise Exception("\nGame was set to have {0} players, but only {1} circles were chosen".format(numPlayers, len(chosenIndices)))
+
+
 print("Player Contributions:", contributions)
 print("Social Welfare:", socialWelfare)
 print("Shapley Values:", shapleyValues)
-print("Price of Anarchy (Marginal):", poaMarginal)
-print("Price of Anarchy (Shapley):", poaShapley)
+if smallGame:
+    print("Optimal Social Welfare:", optimalSocialWelfare)
+    print("Price of Anarchy (Marginal):", poaMarginal)
+else:
+    print("Approximate Social Welfare:", optimalSocialWelfare)
+
+# print("Price of Anarchy (Shapley):", poaShapley)
