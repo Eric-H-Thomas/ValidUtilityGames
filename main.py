@@ -1,9 +1,13 @@
 import itertools
 import math
-import matplotlib.pyplot as plt
 import numpy as np
 from shapely.geometry import Point
 from shapely.ops import unary_union
+import time
+import signal
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def create_random_circles(n, radius_range, board_size):
@@ -234,74 +238,140 @@ def calculate_price_of_anarchy_with_shapley_utility(_circles, num_players):
     return optimal_social_welfare / worst_NE_welfare
 
 
-# Parameters
-numPlayers = 3
-numCircles = 10
+############################################################
+# SINGLE GAME PLAY ##
+############################################################
+
+# # Parameters
+# numPlayers = 3
+# numCircles = 20
+# radiusRange = (1, 3)
+# boardSize = (10, 10)
+#
+# # Create random circles
+# circles = create_random_circles(numCircles, radiusRange, boardSize)
+#
+# # Interactive part
+# chosenIndices = []
+#
+#
+# def onclick(event):
+#     global chosenIndices
+#     for i, c in enumerate(circles):
+#         distance = np.sqrt((c[0][0] - event.xdata) ** 2 + (c[0][1] - event.ydata) ** 2)
+#         if distance <= c[1]:
+#             if i not in chosenIndices:
+#                 chosenIndices.append(i)
+#             else:
+#                 chosenIndices.remove(i)
+#             break
+#     plot_circles(ax, circles, chosenIndices)
+#
+#
+# # Plot the circles and set up the event handler
+# fig, ax = plt.subplots()
+# plot_circles(ax, circles)
+#
+# cid = fig.canvas.mpl_connect('button_press_event', onclick)
+#
+# # Show the plot and wait for user interaction
+# plt.show()
+#
+# # Simulate the game after selection is complete
+# contributions, socialWelfare = simulate_game(circles, chosenIndices)
+#
+# # Calculate Shapley values
+# shapleyValues = calculate_shapley_values(circles, chosenIndices)
+#
+# # Calculate/approximate optimal social welfare
+# optimalSocialWelfare = calculate_optimal_social_welfare(circles, numPlayers)
+# #optimalSocialWelfare = approximate_optimal_social_welfare(circles, numPlayers)
+#
+#
+# # Calculate Price of Anarchy
+# poaMarginal = calculate_price_of_anarchy_with_marginal_utility(circles, numPlayers)
+# poaShapley = calculate_price_of_anarchy_with_shapley_utility(circles, numPlayers)
+#
+# # Display results
+# if numPlayers != len(chosenIndices):
+#     raise Exception("\nGame was set to have {0} players, but only {1} circles were chosen".format(numPlayers, len(chosenIndices)))
+#
+#
+# print("Player Contributions:", contributions)
+# print("Social Welfare:", socialWelfare)
+# print("Shapley Values:", shapleyValues)
+# print("Optimal Social Welfare:", optimalSocialWelfare)
+# print("Price of Anarchy (Marginal):", poaMarginal)
+# print("Price of Anarchy (Shapley):", poaShapley)
+
+#print("Approximate Social Welfare:", optimalSocialWelfare)
+
+############################################################
+# AUTOMATED TESTING ##
+############################################################
+
 radiusRange = (1, 3)
 boardSize = (10, 10)
+numCircles = 10
 
-# Create random circles
-circles = create_random_circles(numCircles, radiusRange, boardSize)
+# Timeout handler
+class TimeoutException(Exception):
+    pass
 
-# Interactive part
-chosenIndices = []
+def timeout_handler(signum, frame):
+    raise TimeoutException
 
+signal.signal(signal.SIGALRM, timeout_handler)
 
-def onclick(event):
-    global chosenIndices
-    for i, c in enumerate(circles):
-        distance = np.sqrt((c[0][0] - event.xdata) ** 2 + (c[0][1] - event.ydata) ** 2)
-        if distance <= c[1]:
-            if i not in chosenIndices:
-                chosenIndices.append(i)
-            else:
-                chosenIndices.remove(i)
-            break
-    plot_circles(ax, circles, chosenIndices)
+def calculate_poa_with_timeout(_circles, n_players):
+    try:
+        signal.alarm(120)  # Set the timeout for 120 seconds
+        POA_marginal = calculate_price_of_anarchy_with_marginal_utility(_circles, n_players)
+        POA_shapley = calculate_price_of_anarchy_with_shapley_utility(_circles, n_players)
+        signal.alarm(0)  # Cancel the alarm
+        return POA_marginal, POA_shapley
+    except TimeoutException:
+        return -1, -1
 
+results = []
 
-# Plot the circles and set up the event handler
-fig, ax = plt.subplots()
-plot_circles(ax, circles)
+# Wrap the outer loop with tqdm to track progress
+outer_loop = tqdm(range(2, numCircles), desc="Circles")
+for num_circles in outer_loop:
+    inner_loop = tqdm(range(2, num_circles + 1), desc=f"{num_circles} Circles", leave=False)
+    for num_players in inner_loop:
+        circles = create_random_circles(num_circles, radiusRange, boardSize)
+        poa_marginal, poa_shapley = calculate_poa_with_timeout(circles, num_players)
+        results.append((num_circles, num_players, poa_marginal, poa_shapley))
+        inner_loop.set_description(f"Players: {num_players}, Circles: {num_circles}")
+    inner_loop.close()
 
-cid = fig.canvas.mpl_connect('button_press_event', onclick)
+# Print results
+for result in results:
+    print(f"Circles: {result[0]}, Players: {result[1]}, POA Marginal: {result[2]}, POA Shapley: {result[3]}")
 
-# Show the plot and wait for user interaction
+# Separate results into different lists for plotting
+num_circles_list = [result[0] for result in results]
+num_players_list = [result[1] for result in results]
+poa_marginal_list = [result[2] for result in results]
+poa_shapley_list = [result[3] for result in results]
+
+# Plotting POA Marginal
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.scatter(num_circles_list, num_players_list, poa_marginal_list, c='r', marker='o')
+ax.set_xlabel('Number of Circles')
+ax.set_ylabel('Number of Players')
+ax.set_zlabel('Price of Anarchy (Marginal)')
+ax.set_title('Price of Anarchy (Marginal) vs Number of Circles and Number of Players')
 plt.show()
 
-# Simulate the game after selection is complete
-contributions, socialWelfare = simulate_game(circles, chosenIndices)
-
-# Calculate Shapley values
-shapleyValues = calculate_shapley_values(circles, chosenIndices)
-
-# Calculate/approximate optimal social welfare
-smallGame = True
-if numCircles > 20:
-    smallGame = False
-
-optimalSocialWelfare = 0.0
-if smallGame:
-    optimalSocialWelfare = calculate_optimal_social_welfare(circles, numPlayers)
-else:
-    optimalSocialWelfare = approximate_optimal_social_welfare(circles, numPlayers)
-
-
-# Calculate Price of Anarchy
-poaMarginal = calculate_price_of_anarchy_with_marginal_utility(circles, numPlayers)
-poaShapley = calculate_price_of_anarchy_with_shapley_utility(circles, numPlayers)
-
-# Display results
-if numPlayers != len(chosenIndices):
-    raise Exception("\nGame was set to have {0} players, but only {1} circles were chosen".format(numPlayers, len(chosenIndices)))
-
-
-print("Player Contributions:", contributions)
-print("Social Welfare:", socialWelfare)
-print("Shapley Values:", shapleyValues)
-if smallGame:
-    print("Optimal Social Welfare:", optimalSocialWelfare)
-    print("Price of Anarchy (Marginal):", poaMarginal)
-    print("Price of Anarchy (Shapley):", poaShapley)
-else:
-    print("Approximate Social Welfare:", optimalSocialWelfare)
+# Plotting POA Shapley
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.scatter(num_circles_list, num_players_list, poa_shapley_list, c='b', marker='o')
+ax.set_xlabel('Number of Circles')
+ax.set_ylabel('Number of Players')
+ax.set_zlabel('Price of Anarchy (Shapley)')
+ax.set_title('Price of Anarchy (Shapley) vs Number of Circles and Number of Players')
+plt.show()
